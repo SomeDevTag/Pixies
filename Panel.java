@@ -2,6 +2,7 @@ import java.awt.BasicStroke;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.Dimension;
+import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Point;
@@ -39,12 +40,18 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	private static final int PALETTE_X = 50;
 	private static final int PALETTE_WIDTH = PALETTE_COUNT * SWATCH_SIZE;
 
-	private static final int PAGE_ADD_X = 475;   // "+  -" adds and removes pages
-	private static final int PAGE_ADD_WIDTH = 50;
-	private static final int PAGE_NAV_X = 550;   // "<  n/m  >" steps between pages
-	private static final int PAGE_NAV_WIDTH = 90;
-	private static final int PLAY_X = 650;       // plays the animation once
-	private static final int PLAY_WIDTH = 25;
+	// The page controls sit at the right hand end of the toolbar. Their x positions
+	// are worked out from the current width rather than hard coded, so they follow
+	// the window when it is resized instead of leaving a gap.
+	private static final int TOOLBAR_MARGIN = 10;
+	private static final int BUTTON_GAP = 10;
+
+	private static final int PAGE_ADD_HALF = 25;                        // "+" and "-"
+	private static final int PAGE_ADD_WIDTH = PAGE_ADD_HALF * 2;
+	private static final int NAV_ARROW_WIDTH = 22;                      // "<" and ">"
+	private static final int NAV_COUNTER_WIDTH = 66;                    // "128 / 128"
+	private static final int PAGE_NAV_WIDTH = NAV_ARROW_WIDTH * 2 + NAV_COUNTER_WIDTH;
+	private static final int PLAY_WIDTH = 25;                           // plays once
 
 	private static final int MENU_X = 10;
 	private static final int MENU_Y = 10;
@@ -95,6 +102,7 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	private static final int UNDO_LIMIT = 64;
 
 	private static final Color UI_PANEL = new Color(75, 75, 75);
+	private static final Color UI_TOOLBAR = new Color(60, 60, 60);
 	private static final Color UI_LIGHT = new Color(215, 215, 215);
 	private static final Color UI_SELECTED = new Color(180, 180, 180);
 	private static final Color UI_HINT = new Color(95, 95, 95);
@@ -207,6 +215,27 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		return Math.max(0, getHeight() - TOOLBAR_HEIGHT);
 	}
 
+	/** Play button, pinned to the right edge. The other two sit to its left. */
+	private int playX() {
+		return getWidth() - TOOLBAR_MARGIN - PLAY_WIDTH;
+	}
+
+	private int pageNavX() {
+		return playX() - BUTTON_GAP - PAGE_NAV_WIDTH;
+	}
+
+	private int pageAddX() {
+		return pageNavX() - BUTTON_GAP - PAGE_ADD_WIDTH;
+	}
+
+	/** Draws a label centred in one toolbar cell, both across and down. */
+	private void drawCentered(Graphics2D g2, String text, int cellX, int cellWidth, int toolbarY) {
+		FontMetrics fm = g2.getFontMetrics();
+		int textX = cellX + (cellWidth - fm.stringWidth(text)) / 2;
+		int baseline = toolbarY + (SWATCH_SIZE - fm.getHeight()) / 2 + fm.getAscent();
+		g2.drawString(text, textX, baseline);
+	}
+
 	/** True if the given screen position lands on a canvas pixel. */
 	private boolean isOverCanvas(int screenX, int screenY) {
 		if (screenX < camX || screenY < camY) {
@@ -283,6 +312,10 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		String hint = "Press H for help";
 		g2.setColor(UI_HINT);
 		g2.drawString(hint, (getWidth() - g2.getFontMetrics().stringWidth(hint)) / 2, 30);
+
+		// A solid bar behind the controls, so the canvas does not show through them.
+		g2.setColor(UI_TOOLBAR);
+		g2.fillRect(0, toolbarY, getWidth(), TOOLBAR_HEIGHT);
 
 		paintPalette(g2, toolbarY);
 		paintMenu(g2);
@@ -383,26 +416,37 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 
 	/** Add/remove page, previous/next page and the play button. */
 	private void paintPageControls(Graphics2D g2, int toolbarY) {
+		int addX = pageAddX();
+		int navX = pageNavX();
+		int playX = playX();
+
 		g2.setColor(UI_LIGHT);
-		g2.fillRect(PAGE_ADD_X, toolbarY, PAGE_ADD_WIDTH, SWATCH_SIZE);
-		g2.fillRect(PAGE_NAV_X, toolbarY, PAGE_NAV_WIDTH, SWATCH_SIZE);
-		g2.fillRect(PLAY_X, toolbarY, PLAY_WIDTH, SWATCH_SIZE);
+		g2.fillRect(addX, toolbarY, PAGE_ADD_WIDTH, SWATCH_SIZE);
+		g2.fillRect(navX, toolbarY, PAGE_NAV_WIDTH, SWATCH_SIZE);
+		g2.fillRect(playX, toolbarY, PLAY_WIDTH, SWATCH_SIZE);
 
-		// Dividers splitting each button into its two halves.
+		// Dividers between the cells of each button.
 		g2.setColor(UI_PANEL);
-		g2.fillRect(PAGE_ADD_X + 24, toolbarY + 1, 2, 23);
-		g2.fillRect(PAGE_NAV_X + 19, toolbarY + 1, 2, 23);
-		g2.fillRect(PAGE_NAV_X + 69, toolbarY + 1, 2, 23);
+		g2.fillRect(addX + PAGE_ADD_HALF - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
+		g2.fillRect(navX + NAV_ARROW_WIDTH - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
+		g2.fillRect(navX + NAV_ARROW_WIDTH + NAV_COUNTER_WIDTH - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
 
+		// Each label is centred in its own cell, so the page counter stays put as it
+		// grows from "1 / 1" to "128 / 128" instead of running into the arrow.
 		g2.setColor(Color.BLACK);
-		g2.drawString("+      --", PAGE_ADD_X + 8, toolbarY + 15);
-		g2.drawString("<                   >", PAGE_NAV_X + 6, toolbarY + 16);
-		g2.drawString((pageIndex + 1) + " / " + pages.size(), PAGE_NAV_X + 23, toolbarY + 16);
+		drawCentered(g2, "+", addX, PAGE_ADD_HALF, toolbarY);
+		drawCentered(g2, "\u2013", addX + PAGE_ADD_HALF, PAGE_ADD_HALF, toolbarY); // en dash
+		drawCentered(g2, "<", navX, NAV_ARROW_WIDTH, toolbarY);
+		drawCentered(g2, (pageIndex + 1) + " / " + pages.size(),
+				navX + NAV_ARROW_WIDTH, NAV_COUNTER_WIDTH, toolbarY);
+		drawCentered(g2, ">", navX + NAV_ARROW_WIDTH + NAV_COUNTER_WIDTH, NAV_ARROW_WIDTH, toolbarY);
 
-		// Play triangle. The button used to be drawn blank.
+		// Play triangle, centred in its cell.
+		int centreX = playX + PLAY_WIDTH / 2;
+		int centreY = toolbarY + SWATCH_SIZE / 2;
 		g2.fillPolygon(
-				new int[] { PLAY_X + 9, PLAY_X + 9, PLAY_X + 18 },
-				new int[] { toolbarY + 7, toolbarY + 18, toolbarY + 12 }, 3);
+				new int[] { centreX - 4, centreX - 4, centreX + 6 },
+				new int[] { centreY - 6, centreY + 6, centreY }, 3);
 	}
 
 	/** The default 16 colour palette. */
@@ -612,21 +656,30 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 			selectedSwatch = clamp((x - PALETTE_X) / SWATCH_SIZE, 0, PALETTE_COUNT - 1);
 			currentColor = palette[selectedSwatch];
 			isDraggingSwatch = true;
-		} else if (x >= PAGE_ADD_X && x < PAGE_ADD_X + PAGE_ADD_WIDTH) {
-			if (x > PAGE_ADD_X + PAGE_ADD_WIDTH / 2) {
-				removePage();
-			} else {
+			return;
+		}
+
+		// Same positions the buttons were painted at, so the two cannot disagree.
+		int addX = pageAddX();
+		int navX = pageNavX();
+		int playX = playX();
+
+		if (x >= addX && x < addX + PAGE_ADD_WIDTH) {
+			if (x < addX + PAGE_ADD_HALF) {
 				addPage();
+			} else {
+				removePage();
 			}
-		} else if (x >= PAGE_NAV_X && x < PAGE_NAV_X + PAGE_NAV_WIDTH) {
-			if (x > PAGE_NAV_X + PAGE_NAV_WIDTH / 2) {
-				if (pageIndex + 1 < pages.size()) {
-					pageIndex++;
+		} else if (x >= navX && x < navX + PAGE_NAV_WIDTH) {
+			// Only the arrows do anything, the counter between them is just a label.
+			if (x < navX + NAV_ARROW_WIDTH) {
+				if (pageIndex > 0) {
+					pageIndex--;
 				}
-			} else if (pageIndex > 0) {
-				pageIndex--;
+			} else if (x >= navX + NAV_ARROW_WIDTH + NAV_COUNTER_WIDTH && pageIndex + 1 < pages.size()) {
+				pageIndex++;
 			}
-		} else if (x >= PLAY_X && x < PLAY_X + PLAY_WIDTH) {
+		} else if (x >= playX && x < playX + PLAY_WIDTH) {
 			playAnimation();
 		}
 	}

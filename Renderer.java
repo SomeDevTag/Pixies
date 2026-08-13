@@ -1,4 +1,5 @@
 import java.awt.Dimension;
+import java.awt.Insets;
 
 import javax.swing.JFrame;
 
@@ -24,7 +25,13 @@ public class Renderer extends JFrame {
 		setDefaultCloseOperation(EXIT_ON_CLOSE);
 		add(panel);
 		pack();
-		setMinimumSize(new Dimension(680, 600));
+
+		// The minimum applies to the whole window, so the border and title bar have to
+		// be added on. Without this the panel itself can end up narrower than 680 and
+		// the toolbar runs into the palette.
+		Insets insets = getInsets();
+		setMinimumSize(new Dimension(680 + insets.left + insets.right,
+				600 + insets.top + insets.bottom));
 		setLocationRelativeTo(null);
 		setVisible(true);
 		panel.requestFocusInWindow(); // so the keyboard shortcuts work without clicking first

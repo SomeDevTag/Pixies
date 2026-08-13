@@ -6,7 +6,10 @@ You draw on a square grid, flip between pages to build up an animation, preview 
 on a loop with onion skinning, and then export the frames as PNGs or save the whole
 thing to a single project file.
 
-![The editor with the tool menu open](screenshots/editor.png)
+![The editor with the tool menu open, playing a two frame animation](media/editor.gif)
+
+That's a two page animation looping in the editor, with the tool menu open on the
+left.
 
 Everything you see is drawn by hand onto one `JPanel`. The canvas, the palette
 strip, the tool menu and the page buttons are all painted directly and hit tested
@@ -44,11 +47,15 @@ or 128 pixels square, plus a 30px option that matches the `.rona` sample files.
 Whatever name you type gets used for every file the editor writes, so any spaces
 in it are stripped out.
 
+Once you're in, left click to draw and use the **+** button to add pages as you go:
+
+![Drawing on a fresh canvas](media/drawing.gif)
+
 ## Controls
 
 Press <kbd>H</kbd> at any point to get this list inside the app.
 
-![The help window](screenshots/help.png)
+![The help window](media/help.png)
 
 | Input | What it does |
 | --- | --- |

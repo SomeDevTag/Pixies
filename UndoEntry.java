@@ -8,6 +8,9 @@ import java.util.ArrayList;
  * than a handful of references no matter how big the canvas is. That is only safe
  * because {@link Panel#beginEdit} never draws on a page that has been snapshotted,
  * it swaps in a fresh copy first and leaves the original here.
+ *
+ * Usage:
+ *   undoStack.push(new UndoEntry(pages, pageIndex, palette));
  */
 public class UndoEntry {
 

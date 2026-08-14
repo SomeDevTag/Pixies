@@ -13,6 +13,8 @@ import java.awt.event.KeyListener;
 import java.awt.event.MouseEvent;
 import java.awt.event.MouseListener;
 import java.awt.event.MouseMotionListener;
+import java.awt.event.MouseWheelEvent;
+import java.awt.event.MouseWheelListener;
 import java.io.File;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -27,8 +29,13 @@ import javax.swing.Timer;
  * the tool menu and the page controls are all painted by hand and hit tested by
  * pixel coordinates, so the layout constants below are shared between
  * {@link #paintComponent} and {@link #mousePressed} to keep the two in step.
+ *
+ * Usage:
+ *   Panel panel = new Panel("Untitled", 32);
+ *   Panel loaded = new Panel("exports/Sunny.pixies");
+ *   frame.add(panel);
  */
-public class Panel extends JPanel implements MouseListener, MouseMotionListener, KeyListener {
+public class Panel extends JPanel implements MouseListener, MouseMotionListener, MouseWheelListener, KeyListener {
 
 	private static final long serialVersionUID = 1L;
 
@@ -38,6 +45,9 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	private static final int SWATCH_SIZE = 25;
 	private static final int PALETTE_COUNT = 16;
 	private static final int PALETTE_X = 50;
+	/** The colour wheel button, tucked in beside the swatches. */
+	private static final int WHEEL_BTN_X = 16;
+	private static final int WHEEL_BTN_W = 25;
 	private static final int PALETTE_WIDTH = PALETTE_COUNT * SWATCH_SIZE;
 
 	// The page controls sit at the right hand end of the toolbar. Their x positions
@@ -55,7 +65,7 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 
 	private static final int MENU_X = 10;
 	private static final int MENU_Y = 10;
-	private static final int MENU_WIDTH = 120;
+	private static final int MENU_WIDTH = 158;
 	private static final int MENU_ITEM_HEIGHT = 25;
 
 	// ---------------------------------------------------------------- tools
@@ -69,10 +79,22 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	private static final int TOOL_EYEDROPPER = 3;
 	private static final int TOOL_RECT = 4;
 
-	// Menu rows that are toggles rather than one off actions. The menu stays open
-	// for these so the checkbox next to them can be seen changing.
-	private static final int MENU_ONION_SKIN = 7;
-	private static final int MENU_LOOP_PLAY = 8;
+	// Menu row indices. Rows 1 to 4 are the tool ids above, so the open menu can
+	// highlight the active tool just by comparing indices. Onion skin and loop play
+	// are toggles: the menu stays open for those so their checkbox can be seen
+	// changing, everything else closes it.
+	private static final int MENU_CANCEL = 0;
+	private static final int MENU_SAVE_PNG = 5;
+	private static final int MENU_SAVE_GIF = 6;
+	private static final int MENU_SAVE_SHEET = 7;
+	private static final int MENU_SAVE_PIXIES = 8;
+	private static final int MENU_SAVE_RONA = 9;
+	private static final int MENU_ONION_SKIN = 10;
+	private static final int MENU_LOOP_PLAY = 11;
+	private static final int MENU_COLOR_WHEEL = 12;
+	private static final int MENU_DUPLICATE = 13;
+	private static final int MENU_INSERT = 14;
+	private static final int MENU_UNDO = 15;
 
 	private static final String[] TOOL_MENU = {
 		"Cancel (E)",
@@ -81,13 +103,15 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		"Eyedropper (I)",
 		"Draw Square (W)",
 		"Save PNGs",
+		"Save GIF",
+		"Save Sheet",
 		"Save .pixies (Ctrl+S)",
+		"Save .rona",
 		"Onion Skin (O)",
 		"Loop Play (P)",
 		"Color Wheel (C)",
 		"Duplicate Page",
 		"Insert Blank Page",
-		"Save .rona",
 		"Undo (Ctrl+Z)"
 	};
 
@@ -101,11 +125,6 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	/** How many steps back the undo stack remembers. Older steps are dropped. */
 	private static final int UNDO_LIMIT = 64;
 
-	private static final Color UI_PANEL = new Color(75, 75, 75);
-	private static final Color UI_TOOLBAR = new Color(60, 60, 60);
-	private static final Color UI_LIGHT = new Color(215, 215, 215);
-	private static final Color UI_SELECTED = new Color(180, 180, 180);
-	private static final Color UI_HINT = new Color(95, 95, 95);
 	private static final Stroke THIN_OUTLINE = new BasicStroke(2);
 	private static final Stroke THICK_OUTLINE = new BasicStroke(4);
 
@@ -177,11 +196,12 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 
 	private void init() {
 		setFocusable(true);
-		setBackground(UI_PANEL);
+		setBackground(Theme.INK);
 		setPreferredSize(new Dimension(680, 600));
 		setCursor(new Cursor(Cursor.CROSSHAIR_CURSOR));
 		addMouseListener(this);
 		addMouseMotionListener(this);
+		addMouseWheelListener(this);
 		addKeyListener(this);
 
 		currentColor = palette[0];
@@ -193,6 +213,13 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		camY = camYAtDragStart = (570 - zoom * canvasSize) / 2;
 
 		animationTimer.start();
+	}
+
+	/** Stops the playback timer when the panel goes away, so nothing keeps ticking. */
+	@Override
+	public void removeNotify() {
+		animationTimer.stop();
+		super.removeNotify();
 	}
 
 	public String getCanvasName() {
@@ -229,11 +256,11 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	}
 
 	/** Draws a label centred in one toolbar cell, both across and down. */
-	private void drawCentered(Graphics2D g2, String text, int cellX, int cellWidth, int toolbarY) {
-		FontMetrics fm = g2.getFontMetrics();
+	private void drawCentered(Graphics2D graphics, String text, int cellX, int cellWidth, int toolbarY) {
+		FontMetrics fm = graphics.getFontMetrics();
 		int textX = cellX + (cellWidth - fm.stringWidth(text)) / 2;
 		int baseline = toolbarY + (SWATCH_SIZE - fm.getHeight()) / 2 + fm.getAscent();
-		g2.drawString(text, textX, baseline);
+		graphics.drawString(text, textX, baseline);
 	}
 
 	/** True if the given screen position lands on a canvas pixel. */
@@ -279,14 +306,14 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	@Override
 	protected void paintComponent(Graphics g) {
 		super.paintComponent(g);
-		Graphics2D g2 = (Graphics2D) g;
+		Graphics2D graphics = (Graphics2D) g;
 		int toolbarY = toolbarY();
 
 		// The page itself.
 		for (int x = 0; x < canvasSize; x++) {
 			for (int y = 0; y < canvasSize; y++) {
-				g2.setColor(currentPixels()[x + (y * canvasSize)]);
-				g2.fillRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
+				graphics.setColor(currentPixels()[x + (y * canvasSize)]);
+				graphics.fillRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
 			}
 		}
 
@@ -296,37 +323,45 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 			for (int x = 0; x < canvasSize; x++) {
 				for (int y = 0; y < canvasSize; y++) {
 					Color c = previous[x + (y * canvasSize)];
-					g2.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), ONION_SKIN_ALPHA));
-					g2.fillRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
+					graphics.setColor(new Color(c.getRed(), c.getGreen(), c.getBlue(), ONION_SKIN_ALPHA));
+					graphics.fillRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
 				}
 			}
 		}
 
-		g2.setStroke(THIN_OUTLINE);
-		g2.setColor(Color.BLACK);
-		paintCursor(g2);
-		g2.drawRect(camX, camY, zoom * canvasSize, zoom * canvasSize);
+		graphics.setStroke(THIN_OUTLINE);
+		graphics.setColor(Color.BLACK);
+		paintCursor(graphics);
+		// The canvas keeps a dark frame so its edge reads against the plum ground.
+		graphics.setColor(Theme.INK_DEEP);
+		graphics.drawRect(camX, camY, zoom * canvasSize, zoom * canvasSize);
 
 		// Chrome last, so the canvas cannot cover it. The help hint used to be drawn
 		// first, which meant it was hidden behind the canvas at every zoom level.
+		// Also on a block, for the same reason: it floats over whatever you have drawn.
 		String hint = "Press H for help";
-		g2.setColor(UI_HINT);
-		g2.drawString(hint, (getWidth() - g2.getFontMetrics().stringWidth(hint)) / 2, 30);
+		graphics.setFont(Theme.font(java.awt.Font.PLAIN, 12));
+		int hintWidth = graphics.getFontMetrics().stringWidth(hint) + 24;
+		Rectangle hintBox = new Rectangle((getWidth() - hintWidth) / 2, 12, hintWidth, SWATCH_SIZE);
+		graphics.setColor(Theme.PANEL_DARK);
+		graphics.fillRect(hintBox.x, hintBox.y, hintBox.width, hintBox.height);
+		graphics.setColor(Theme.MUTED);
+		Theme.centreIn(graphics, hint, hintBox);
 
 		// A solid bar behind the controls, so the canvas does not show through them.
-		g2.setColor(UI_TOOLBAR);
-		g2.fillRect(0, toolbarY, getWidth(), TOOLBAR_HEIGHT);
+		graphics.setColor(Theme.INK_DEEP);
+		graphics.fillRect(0, toolbarY, getWidth(), TOOLBAR_HEIGHT);
 
-		paintPalette(g2, toolbarY);
-		paintMenu(g2);
-		paintPageControls(g2, toolbarY);
+		paintPalette(graphics, toolbarY);
+		paintMenu(graphics);
+		paintPageControls(graphics, toolbarY);
 	}
 
 	/** Outline of the pixel under the mouse, or of the square being dragged out. */
-	private void paintCursor(Graphics2D g2) {
+	private void paintCursor(Graphics2D graphics) {
 		if (isDrawingRect) {
 			Rectangle r = currentSelection();
-			g2.drawRect(camX + r.x * zoom, camY + r.y * zoom, r.width * zoom, r.height * zoom);
+			graphics.drawRect(camX + r.x * zoom, camY + r.y * zoom, r.width * zoom, r.height * zoom);
 			return;
 		}
 		if (!isOverCanvas(mouseX, mouseY)) {
@@ -338,135 +373,182 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		if (selectedTool == TOOL_LINE) {
 			// Preview the colour that would be laid down, plus the rubber band back
 			// to the last painted pixel while the button is held.
-			g2.setColor(currentColor);
-			g2.fillRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
-			g2.setColor(Color.BLACK);
-			g2.drawRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
+			graphics.setColor(currentColor);
+			graphics.fillRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
+			graphics.setColor(Color.BLACK);
+			graphics.drawRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
 			if (isDrawingLine) {
-				g2.drawLine(camX + lastPaintX * zoom + zoom / 2, camY + lastPaintY * zoom + zoom / 2,
+				graphics.drawLine(camX + lastPaintX * zoom + zoom / 2, camY + lastPaintY * zoom + zoom / 2,
 						mouseX, mouseY);
 			}
 		} else {
-			g2.drawRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
+			graphics.drawRect(camX + x * zoom, camY + y * zoom, zoom, zoom);
 		}
 	}
 
-	/** The 16 swatch strip along the bottom, with the active one ringed in green. */
-	private void paintPalette(Graphics2D g2, int toolbarY) {
-		for (int i = 0; i < PALETTE_COUNT; i++) {
-			g2.setColor(palette[i]);
-			g2.fillRect(PALETTE_X + (i * SWATCH_SIZE), toolbarY, SWATCH_SIZE, SWATCH_SIZE);
-		}
-		g2.setColor(UI_LIGHT);
-		g2.drawRect(PALETTE_X, toolbarY, PALETTE_WIDTH, SWATCH_SIZE);
+	/** The 16 swatch strip along the bottom, plus the colour wheel button beside it. */
+	private void paintPalette(Graphics2D graphics, int toolbarY) {
+		paintWheelButton(graphics, toolbarY);
 
-		g2.setStroke(THICK_OUTLINE);
-		g2.setColor(Color.GREEN);
-		g2.drawRect(PALETTE_X + selectedSwatch * SWATCH_SIZE, toolbarY, SWATCH_SIZE, SWATCH_SIZE);
-		g2.setStroke(THIN_OUTLINE);
+		for (int i = 0; i < PALETTE_COUNT; i++) {
+			graphics.setColor(palette[i]);
+			graphics.fillRect(PALETTE_X + (i * SWATCH_SIZE), toolbarY, SWATCH_SIZE, SWATCH_SIZE);
+		}
+
+		graphics.setStroke(THICK_OUTLINE);
+		graphics.setColor(Theme.MINT);
+		graphics.drawRect(PALETTE_X + selectedSwatch * SWATCH_SIZE, toolbarY, SWATCH_SIZE, SWATCH_SIZE);
+		graphics.setStroke(THIN_OUTLINE);
 
 		// While a swatch is being dragged, carry it under the cursor.
 		if (isDraggingSwatch) {
-			g2.setColor(currentColor);
-			g2.fillRect(mouseX - zoom / 2, mouseY - zoom / 2, zoom, zoom);
+			graphics.setColor(currentColor);
+			graphics.fillRect(mouseX - zoom / 2, mouseY - zoom / 2, zoom, zoom);
+		}
+	}
+
+	/**
+	 * A little colour wheel sitting right next to the swatches, since that is where
+	 * you are already looking when you want a different colour.
+	 */
+	private void paintWheelButton(Graphics2D graphics, int toolbarY) {
+		boolean hot = mouseY > toolbarY && mouseX >= WHEEL_BTN_X && mouseX < WHEEL_BTN_X + WHEEL_BTN_W;
+		if (hot) {
+			graphics.setColor(Theme.PANEL);
+		} else {
+			graphics.setColor(Theme.PANEL_DARK);
+		}
+		graphics.fillRect(WHEEL_BTN_X, toolbarY, WHEEL_BTN_W, SWATCH_SIZE);
+
+		// Six hue wedges, so it reads as a colour wheel at a glance.
+		int inset = 4;
+		int diameter = SWATCH_SIZE - inset * 2;
+		for (int i = 0; i < 6; i++) {
+			graphics.setColor(Color.getHSBColor(i / 6f, 0.85f, 1f));
+			graphics.fillArc(WHEEL_BTN_X + inset, toolbarY + inset, diameter, diameter, i * 60, 60);
 		}
 	}
 
 	/** The tool menu, either expanded or collapsed to a single "E" button. */
-	private void paintMenu(Graphics2D g2) {
-		g2.setColor(Color.BLACK);
+	private void paintMenu(Graphics2D graphics) {
 		if (onionSkinOn) {
 			// Right aligned by measurement, it used to run off the edge of the window.
+			graphics.setFont(Theme.font(java.awt.Font.BOLD, 12));
+			graphics.setColor(Theme.PEACH);
 			String label = "onion skin";
-			g2.drawString(label, getWidth() - g2.getFontMetrics().stringWidth(label) - 10, 26);
+			graphics.drawString(label, getWidth() - graphics.getFontMetrics().stringWidth(label) - 12, 26);
 		}
 
+		graphics.setFont(Theme.font(java.awt.Font.PLAIN, 12));
 		if (!menuOpen) {
-			g2.setColor(UI_LIGHT);
-			g2.fillRect(MENU_X, MENU_Y, SWATCH_SIZE, SWATCH_SIZE);
-			g2.setColor(Color.BLACK);
-			g2.drawString("E", MENU_X + 8, MENU_Y + 16);
-			g2.drawString(TOOL_MENU[selectedTool], MENU_X + 33, MENU_Y + 16);
+			// The label sits on its own block, otherwise it is unreadable whenever the
+			// canvas happens to be underneath it.
+			String label = TOOL_MENU[selectedTool];
+			int width = SWATCH_SIZE + 12 + graphics.getFontMetrics().stringWidth(label) + 12;
+			Theme.block(graphics, MENU_X, MENU_Y, width, SWATCH_SIZE, Theme.PANEL);
+			graphics.setColor(Theme.PANEL_DARK);
+			graphics.fillRect(MENU_X, MENU_Y, SWATCH_SIZE, SWATCH_SIZE);
+			graphics.setColor(Theme.CREAM);
+			Theme.centreIn(graphics, "E", new Rectangle(MENU_X, MENU_Y, SWATCH_SIZE, SWATCH_SIZE));
+			graphics.drawString(label, MENU_X + SWATCH_SIZE + 12, MENU_Y + 17);
 			return;
 		}
 
+		int menuHeight = TOOL_MENU.length * MENU_ITEM_HEIGHT;
+		Theme.block(graphics, MENU_X, MENU_Y, MENU_WIDTH, menuHeight, Theme.PANEL);
+
 		for (int i = 0; i < TOOL_MENU.length; i++) {
 			int rowY = MENU_Y + (i * MENU_ITEM_HEIGHT);
-			g2.setColor(i == selectedTool ? UI_SELECTED : UI_LIGHT);
-			g2.fillRect(MENU_X, rowY, MENU_WIDTH, MENU_ITEM_HEIGHT);
-			g2.setColor(UI_PANEL);
-			g2.fillRect(MENU_X, rowY + MENU_ITEM_HEIGHT - 1, MENU_WIDTH, 1); // row divider
-			g2.drawString(TOOL_MENU[i], MENU_X + 8, rowY + 16);
+			boolean active = i == selectedTool;
+			boolean hot = mouseX >= MENU_X && mouseX < MENU_X + MENU_WIDTH
+					&& mouseY >= rowY && mouseY < rowY + MENU_ITEM_HEIGHT;
+			if (active) {
+				graphics.setColor(Theme.PEACH);
+				graphics.fillRect(MENU_X, rowY, MENU_WIDTH, MENU_ITEM_HEIGHT);
+			} else if (hot) {
+				graphics.setColor(Theme.PANEL_DARK);
+				graphics.fillRect(MENU_X, rowY, MENU_WIDTH, MENU_ITEM_HEIGHT);
+			}
+			graphics.setColor(Theme.PANEL_DARK);
+			graphics.fillRect(MENU_X, rowY + MENU_ITEM_HEIGHT - 1, MENU_WIDTH, 1); // row divider
+			if (active) {
+				graphics.setColor(Theme.INK);
+			} else {
+				graphics.setColor(Theme.CREAM);
+			}
+			graphics.drawString(TOOL_MENU[i], MENU_X + 10, rowY + 17);
 		}
 
 		// Checkboxes for the two rows that are toggles.
-		paintCheckbox(g2, MENU_ONION_SKIN, onionSkinOn);
-		paintCheckbox(g2, MENU_LOOP_PLAY, isLooping);
+		paintCheckbox(graphics, MENU_ONION_SKIN, onionSkinOn);
+		paintCheckbox(graphics, MENU_LOOP_PLAY, isLooping);
 	}
 
-	private void paintCheckbox(Graphics2D g2, int menuRow, boolean checked) {
+	private void paintCheckbox(Graphics2D graphics, int menuRow, boolean checked) {
 		int boxY = MENU_Y + 6 + (menuRow * MENU_ITEM_HEIGHT);
-		g2.setColor(UI_PANEL);
+		int boxX = MENU_X + MENU_WIDTH - 22;
 		if (checked) {
-			g2.fillRect(MENU_X + 101, boxY, 13, 13);
+			graphics.setColor(Theme.MINT);
+			graphics.fillRect(boxX, boxY, 13, 13);
 		} else {
-			g2.drawRect(MENU_X + 101, boxY, 13, 13);
+			graphics.setColor(Theme.INK_DEEP);
+			graphics.drawRect(boxX, boxY, 13, 13);
 		}
 	}
 
 	/** Add/remove page, previous/next page and the play button. */
-	private void paintPageControls(Graphics2D g2, int toolbarY) {
+	private void paintPageControls(Graphics2D graphics, int toolbarY) {
 		int addX = pageAddX();
 		int navX = pageNavX();
 		int playX = playX();
 
-		g2.setColor(UI_LIGHT);
-		g2.fillRect(addX, toolbarY, PAGE_ADD_WIDTH, SWATCH_SIZE);
-		g2.fillRect(navX, toolbarY, PAGE_NAV_WIDTH, SWATCH_SIZE);
-		g2.fillRect(playX, toolbarY, PLAY_WIDTH, SWATCH_SIZE);
+		graphics.setColor(Theme.PANEL);
+		graphics.fillRect(addX, toolbarY, PAGE_ADD_WIDTH, SWATCH_SIZE);
+		graphics.fillRect(navX, toolbarY, PAGE_NAV_WIDTH, SWATCH_SIZE);
+		graphics.fillRect(playX, toolbarY, PLAY_WIDTH, SWATCH_SIZE);
 
 		// Dividers between the cells of each button.
-		g2.setColor(UI_PANEL);
-		g2.fillRect(addX + PAGE_ADD_HALF - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
-		g2.fillRect(navX + NAV_ARROW_WIDTH - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
-		g2.fillRect(navX + NAV_ARROW_WIDTH + NAV_COUNTER_WIDTH - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
+		graphics.setColor(Theme.INK_DEEP);
+		graphics.fillRect(addX + PAGE_ADD_HALF - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
+		graphics.fillRect(navX + NAV_ARROW_WIDTH - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
+		graphics.fillRect(navX + NAV_ARROW_WIDTH + NAV_COUNTER_WIDTH - 1, toolbarY + 1, 2, SWATCH_SIZE - 2);
 
 		// Each label is centred in its own cell, so the page counter stays put as it
 		// grows from "1 / 1" to "128 / 128" instead of running into the arrow.
-		g2.setColor(Color.BLACK);
-		drawCentered(g2, "+", addX, PAGE_ADD_HALF, toolbarY);
-		drawCentered(g2, "\u2013", addX + PAGE_ADD_HALF, PAGE_ADD_HALF, toolbarY); // en dash
-		drawCentered(g2, "<", navX, NAV_ARROW_WIDTH, toolbarY);
-		drawCentered(g2, (pageIndex + 1) + " / " + pages.size(),
+		graphics.setFont(Theme.font(java.awt.Font.BOLD, 12));
+		graphics.setColor(Theme.CREAM);
+		drawCentered(graphics, "+", addX, PAGE_ADD_HALF, toolbarY);
+		drawCentered(graphics, "\u2013", addX + PAGE_ADD_HALF, PAGE_ADD_HALF, toolbarY); // en dash
+		drawCentered(graphics, "<", navX, NAV_ARROW_WIDTH, toolbarY);
+		drawCentered(graphics, (pageIndex + 1) + " / " + pages.size(),
 				navX + NAV_ARROW_WIDTH, NAV_COUNTER_WIDTH, toolbarY);
-		drawCentered(g2, ">", navX + NAV_ARROW_WIDTH + NAV_COUNTER_WIDTH, NAV_ARROW_WIDTH, toolbarY);
+		drawCentered(graphics, ">", navX + NAV_ARROW_WIDTH + NAV_COUNTER_WIDTH, NAV_ARROW_WIDTH, toolbarY);
 
 		// Play triangle, centred in its cell.
 		int centreX = playX + PLAY_WIDTH / 2;
 		int centreY = toolbarY + SWATCH_SIZE / 2;
-		g2.fillPolygon(
+		graphics.fillPolygon(
 				new int[] { centreX - 4, centreX - 4, centreX + 6 },
 				new int[] { centreY - 6, centreY + 6, centreY }, 3);
 	}
 
-	/** The default 16 colour palette. */
+	/**
+	 * The palette every new document starts with. The start screen shows the same
+	 * colours as a ribbon, so this is the one place they are written down.
+	 */
+	public static Color[] defaultPalette() {
+		return new Color[] {
+			new Color(255, 69, 0, 255), new Color(255, 168, 0, 255), new Color(255, 214, 53, 255),
+			new Color(0, 163, 104, 255), new Color(126, 237, 86, 255), new Color(36, 80, 164, 255),
+			new Color(54, 144, 234, 255), new Color(81, 223, 244, 255), new Color(129, 30, 159, 255),
+			new Color(180, 74, 192, 255), new Color(255, 153, 170, 255), new Color(157, 105, 38, 255),
+			new Color(0, 0, 0, 255), new Color(137, 141, 144, 255), new Color(212, 215, 217, 255),
+			new Color(255, 255, 255, 255)
+		};
+	}
+
 	private void setDefaultPalette() {
-		palette[0] = new Color(255, 69, 0);
-		palette[1] = new Color(255, 168, 0);
-		palette[2] = new Color(255, 214, 53);
-		palette[3] = new Color(0, 163, 104);
-		palette[4] = new Color(126, 237, 86);
-		palette[5] = new Color(36, 80, 164);
-		palette[6] = new Color(54, 144, 234);
-		palette[7] = new Color(81, 223, 244);
-		palette[8] = new Color(129, 30, 159);
-		palette[9] = new Color(180, 74, 192);
-		palette[10] = new Color(255, 153, 170);
-		palette[11] = new Color(157, 105, 38);
-		palette[12] = new Color(0, 0, 0);
-		palette[13] = new Color(137, 141, 144);
-		palette[14] = new Color(212, 215, 217);
-		palette[15] = new Color(255, 255, 255);
+		System.arraycopy(defaultPalette(), 0, palette, 0, PALETTE_COUNT);
 	}
 
 	/** Called by the colour wheel when Apply is pressed. */
@@ -651,6 +733,10 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 	}
 
 	private void handleToolbarClick(int x) {
+		if (x >= WHEEL_BTN_X && x < WHEEL_BTN_X + WHEEL_BTN_W) {
+			new ColorPicker(this, currentColor).setVisible(true);
+			return;
+		}
 		if (x >= PALETTE_X && x < PALETTE_X + PALETTE_WIDTH) {
 			// Picking a swatch also arms the fill tool: release over the canvas fills.
 			selectedSwatch = clamp((x - PALETTE_X) / SWATCH_SIZE, 0, PALETTE_COUNT - 1);
@@ -702,7 +788,7 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 
 		int row = (y - MENU_Y) / MENU_ITEM_HEIGHT;
 		switch (row) {
-		case 0: // cancel
+		case MENU_CANCEL:
 			break;
 		case TOOL_BRUSH:
 		case TOOL_LINE:
@@ -710,11 +796,20 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		case TOOL_RECT:
 			selectedTool = row;
 			break;
-		case 5:
-			newSaver().savePng();
+		case MENU_SAVE_PNG:
+			exportImages("Export PNGs", false, false);
 			break;
-		case 6:
+		case MENU_SAVE_GIF:
+			exportImages("Export GIF", true, false);
+			break;
+		case MENU_SAVE_SHEET:
+			exportImages("Export Sheet", false, true);
+			break;
+		case MENU_SAVE_PIXIES:
 			newSaver().savePixies();
+			break;
+		case MENU_SAVE_RONA:
+			newSaver().saveRona();
 			break;
 		case MENU_ONION_SKIN:
 			onionSkinOn = !onionSkinOn;
@@ -722,25 +817,40 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		case MENU_LOOP_PLAY:
 			toggleLoop();
 			return;
-		case 9:
+		case MENU_COLOR_WHEEL:
 			new ColorPicker(this, currentColor).setVisible(true);
 			break;
-		case 10:
+		case MENU_DUPLICATE:
 			insertPageAfterCurrent(true);
 			break;
-		case 11:
+		case MENU_INSERT:
 			insertPageAfterCurrent(false);
 			break;
-		case 12:
-			newSaver().saveRona();
-			break;
-		case 13:
+		case MENU_UNDO:
 			undo();
 			break;
 		default:
 			return;
 		}
 		menuOpen = false; // every one off action closes the menu behind it
+	}
+
+	/**
+	 * Asks how big each pixel should come out, then runs the matching export.
+	 * Cancelling the dialog writes nothing.
+	 */
+	private void exportImages(String title, boolean withDelay, boolean withColumns) {
+		ExportOptions options = ExportOptions.ask(this, title, withDelay, withColumns);
+		if (options == null) {
+			return;
+		}
+		if (withDelay) {
+			newSaver().saveGif(options.scale, options.delayMs);
+		} else if (withColumns) {
+			newSaver().saveSheet(options.scale, options.columns);
+		} else {
+			newSaver().savePng(options.scale);
+		}
 	}
 
 	private Saving newSaver() {
@@ -861,6 +971,32 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 		repaint();
 	}
 
+	/**
+	 * Scroll to zoom, anchored on the pointer.
+	 * The canvas pixel under the cursor stays under the cursor.
+	 */
+	@Override
+	public void mouseWheelMoved(MouseWheelEvent event) {
+		// A proportional step, so zooming stays quick at both ends of the range.
+		int step = Math.max(1, zoom / 8);
+		int target = clamp(zoom - event.getWheelRotation() * step, MIN_ZOOM, MAX_ZOOM);
+		if (target == zoom) {
+			return;
+		}
+
+		double gridX = (event.getX() - camX) / (double) zoom;
+		double gridY = (event.getY() - camY) / (double) zoom;
+		camX = (int) Math.round(event.getX() - gridX * target);
+		camY = (int) Math.round(event.getY() - gridY * target);
+		zoom = target;
+
+		// Keep the drag baselines in step, or the next drag jumps.
+		zoomAtDragStart = zoom;
+		camXAtDragStart = camX;
+		camYAtDragStart = camY;
+		repaint();
+	}
+
 	@Override
 	public void mouseMoved(MouseEvent e) {
 		mouseX = e.getX();
@@ -946,7 +1082,11 @@ public class Panel extends JPanel implements MouseListener, MouseMotionListener,
 			selectedTool = TOOL_EYEDROPPER;
 			break;
 		case KeyEvent.VK_B:
-			selectedTool = (selectedTool == TOOL_BRUSH) ? TOOL_LINE : TOOL_BRUSH;
+			if (selectedTool == TOOL_BRUSH) {
+				selectedTool = TOOL_LINE;
+			} else {
+				selectedTool = TOOL_BRUSH;
+			}
 			break;
 		case KeyEvent.VK_W:
 			selectedTool = TOOL_RECT;
